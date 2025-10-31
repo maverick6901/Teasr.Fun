@@ -239,8 +239,7 @@ export function PostCard({ post, onVote, onPaymentSuccess }: PostCardProps) {
                     <Lock className="w-8 h-8 text-primary" />
                   </motion.div>
 
-                  {canBuyout ? (
-                    <Button
+                  <Button
                       onClick={handlePayment}
                       size="lg"
                       variant="default"
@@ -250,15 +249,10 @@ export function PostCard({ post, onVote, onPaymentSuccess }: PostCardProps) {
                       <Lock className="w-5 h-5 mr-2" />
                       Unlock for {post.price}
                     </Button>
-                  ) : (
-                    <Button
-                      size="lg"
-                      variant="default"
-                      className="px-8 py-6 text-lg font-semibold backdrop-blur-md"
-                      disabled
-                    >
-                      {isBuyoutLimitReached ? "Buyout Sold Out" : "Locked"}
-                    </Button>
+                  {isBuyoutLimitReached && (
+                    <p className="text-xs text-purple-300 font-medium">
+                      All investor spots filled • Unlocking at regular price
+                    </p>
                   )}
                   <p className="text-xs text-white/80">
                     Accepts: {post.acceptedCryptos}

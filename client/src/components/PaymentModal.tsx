@@ -345,35 +345,34 @@ export function PaymentModal({ isOpen, onClose, post, onSuccess, paymentType = '
             )}
 
             {/* Buyout Option - only for content, not comments, and only if spots available */}
-            {!isCommentUnlock && post.buyoutPrice && (
-              <>
-                {!isBuyoutFull ? (
-                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div className="space-y-0.5 flex-1">
-                      <Label htmlFor="buyout">
-                        Investor Option
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Become 1 of 10 investors and earn $0.05 from every future unlock
-                      </p>
-                    </div>
-                    <Switch
-                      id="buyout"
-                      checked={isBuyout}
-                      onCheckedChange={setIsBuyout}
-                    />
-                  </div>
-                ) : (
-                  <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                    <p className="text-sm font-medium text-purple-600 dark:text-purple-400">
-                      All 10 investor spots filled! Unlocking at regular price.
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Your payment helps the 10 investors earn $0.05 each
-                    </p>
-                  </div>
-                )}
-              </>
+            {!isCommentUnlock && post.buyoutPrice && !isBuyoutFull && (
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <div className="space-y-0.5 flex-1">
+                  <Label htmlFor="buyout">
+                    Investor Option
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Become 1 of 10 investors and earn $0.05 from every future unlock
+                  </p>
+                </div>
+                <Switch
+                  id="buyout"
+                  checked={isBuyout}
+                  onCheckedChange={setIsBuyout}
+                />
+              </div>
+            )}
+
+            {/* Show message when investor spots are full */}
+            {!isCommentUnlock && isBuyoutFull && (
+              <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                <p className="text-sm font-medium text-purple-600 dark:text-purple-400">
+                  All 10 investor spots filled!
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Unlocking at regular price. Your payment helps the 10 investors earn $0.05 each.
+                </p>
+              </div>
             )}
 
             <div className="space-y-2">
