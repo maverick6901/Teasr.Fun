@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Upload, Image as ImageIcon, X } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { Upload, Image as ImageIcon, X, Users, TrendingUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -24,6 +25,8 @@ export function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalPro
   const [price, setPrice] = useState('0.50');
   const [isFree, setIsFree] = useState(false);
   const [buyoutPrice, setBuyoutPrice] = useState('');
+  const [maxInvestors, setMaxInvestors] = useState(10);
+  const [investorRevenueShare, setInvestorRevenueShare] = useState('0');
   const [acceptedCryptos, setAcceptedCryptos] = useState<string[]>(['USDC']);
   const [commentsLocked, setCommentsLocked] = useState(false);
   const [commentFee, setCommentFee] = useState('0.10');
@@ -115,6 +118,8 @@ export function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalPro
       if (buyoutPrice && parseFloat(buyoutPrice) > 0) {
         formData.append('buyoutPrice', buyoutPrice);
       }
+      formData.append('maxInvestors', maxInvestors.toString());
+      formData.append('investorRevenueShare', investorRevenueShare);
       formData.append('acceptedCryptos', acceptedCryptos.join(','));
       formData.append('commentsLocked', commentsLocked.toString());
       if (commentsLocked && commentFee) {
@@ -149,6 +154,8 @@ export function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalPro
       setPrice('0.50');
       setIsFree(false);
       setBuyoutPrice('');
+      setMaxInvestors(10);
+      setInvestorRevenueShare('0');
       setAcceptedCryptos(['USDC']);
       setCommentsLocked(false);
       setCommentFee('0.10');
@@ -178,6 +185,8 @@ export function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalPro
     setPrice('0.50');
     setIsFree(false);
     setBuyoutPrice('');
+    setMaxInvestors(10);
+    setInvestorRevenueShare('0');
     setAcceptedCryptos(['USDC']);
     setCommentsLocked(false);
     setCommentFee('0.10');
@@ -344,6 +353,65 @@ export function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalPro
               <p className="text-xs text-muted-foreground mt-1">
                 Users can pay this price to permanently own the content
               </p>
+            </div>
+          )}
+
+          {/* Investor Settings */}
+          {!isFree && buyoutPrice && parseFloat(buyoutPrice) > 0 && (
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="flex items-center gap-2 text-primary">
+                <Users className="w-5 h-5" />
+                <h3 className="font-semibold">Investor Settings</h3>
+              </div>
+              
+              {/* Max Investors */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <Label htmlFor="max-investors">Maximum Investors</Label>
+                  <span className="text-sm font-medium text-primary">{maxInvestors}</span>
+                </div>
+                <Slider
+                  id="max-investors"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={[maxInvestors]}
+                  onValueChange={(value) => setMaxInvestors(value[0])}
+                  className="mt-2"
+                  data-testid="slider-max-investors"
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Set how many investors can buy into your content (1-100)
+                </p>
+              </div>
+
+              {/* Investor Revenue Share */}
+              <div>
+                <Label htmlFor="investor-revenue-share" className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Investor Revenue Share (%)
+                </Label>
+                <Input
+                  id="investor-revenue-share"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={investorRevenueShare}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (val >= 0 && val <= 100) {
+                      setInvestorRevenueShare(e.target.value);
+                    }
+                  }}
+                  placeholder="0.00"
+                  className="mt-2 touch-manipulation min-h-10"
+                  data-testid="input-investor-revenue-share"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Percentage of each unlock fee that goes to investors (0-100%). You keep the rest after platform fees.
+                </p>
+              </div>
             </div>
           )}
 
