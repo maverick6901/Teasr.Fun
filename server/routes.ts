@@ -176,14 +176,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Search users by username
+  app.get('/api/users/search', async (req, res) => {
+    try {
+      const query = req.query.q as string;
+      
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+
+      const users = await storage.searchUsers(query);
+      res.json(users);
+    } catch (error: any) {
+      console.error('Search users error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get user profile by username
   app.get('/api/users/:username', async (req, res) => {
     try {
       const user = await getCurrentUser(req);
       const currentUserId = user?.id;
 
-      // Username lookup should be case-insensitive
-      const profile = await storage.getUserProfile(req.params.username.toLowerCase(), currentUserId);
+      const profile = await storage.getUserProfile(req.params.username, currentUserId);
 
       if (!profile) {
         return res.status(404).json({ error: 'User not found' });
@@ -270,12 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get users who have paid for current user's content
   app.get('/api/users/paid-for-content', async (req, res) => {
     try {
-      const walletAddress = req.headers['x-wallet-address'] as string;
-      if (!walletAddress) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-
-      const user = await storage.getUserByWalletAddress(walletAddress);
+      const user = await getCurrentUser(req);
       if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
@@ -800,6 +811,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           postId: post.id,
           message: `purchased your content for ${amount} ${cryptocurrency}`,
         }).catch(err => console.error('Error creating purchase notification:', err));
+
+        // Auto-create a welcome message to establish the DM conversation
+        try {
+          await storage.createDirectMessage({
+            senderId: post.creatorId,
+            receiverId: user.id,
+            postId: post.id,
+            content: `Thanks for unlocking my content! Feel free to message me anytime.`,
+          });
+          console.log(`Auto-created DM conversation between creator ${post.creatorId} and buyer ${user.id}`);
+        } catch (dmError) {
+          console.error('Error creating auto-DM:', dmError);
+          // Don't fail the payment if DM creation fails
+        }
       }
 
       // Also grant comment access if comments are locked
@@ -1013,18 +1038,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get conversations (list of users with messages)
   app.get('/api/messages/conversations', async (req, res) => {
-    const walletAddress = req.headers['x-wallet-address'] as string;
-    if (!walletAddress) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
 
-    const user = await storage.getUserByWallet(walletAddress);
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      const conversations = await storage.getUserConversations(user.id);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error('Get conversations error:', error);
+      res.status(500).json({ error: error.message });
     }
-
-    const conversations = await storage.getUserConversations(user.id);
-    res.json(conversations);
   });
 
   // Get messages with a specific user
@@ -1057,19 +1082,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if this is the first message in the conversation
       const existingMessages = await storage.getMessagesBetweenUsers(user.id, receiverId);
 
-      if (existingMessages.length === 0 && postId) {
-        // This is the first message - verify creator/buyer relationship
-        const post = await storage.getPost(postId);
-        if (!post) {
-          return res.status(404).json({ error: 'Post not found' });
-        }
+      if (existingMessages.length === 0) {
+        // First message - verify payment relationship exists
+        // Check if sender paid for receiver's content OR receiver paid for sender's content
+        const senderPaidForReceiver = await storage.hasUserPaidForAnyContent(user.id, receiverId);
+        const receiverPaidForSender = await storage.hasUserPaidForAnyContent(receiverId, user.id);
 
-        const hasPaid = await storage.hasUserPaid(receiverId, postId, 'content');
-
-        // Only allow creator to initiate conversation with buyer
-        if (post.creatorId !== user.id || !hasPaid) {
+        if (!senderPaidForReceiver && !receiverPaidForSender) {
           return res.status(403).json({
-            error: 'Only the creator can start a conversation with a buyer'
+            error: 'You can only message users whose content you have unlocked or who have unlocked your content'
           });
         }
       }

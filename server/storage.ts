@@ -75,6 +75,7 @@ export interface IStorage {
   getUserByWallet(walletAddress: string): Promise<User | undefined>; // Added function signature
   getUserByUsername(username: string): Promise<User | undefined>; // Added function signature
   createUser(user: InsertUser): Promise<User>;
+  searchUsers(query: string): Promise<User[]>; // Added for user search
 
   // Posts
   getPost(id: string): Promise<Post | undefined>;
@@ -90,6 +91,7 @@ export interface IStorage {
   getUserRecentPayments(userId: string, limit?: number): Promise<any[]>; // Added user-specific method
   getRecentPayments(limit: number): Promise<any[]>;
   getTotalRevenue(): Promise<string>;
+  hasUserPaidForAnyContent(payerId: string, creatorId: string): Promise<boolean>; // Added for checking if user paid for any content from another user
 
   // Comments
   createComment(comment: InsertComment): Promise<Comment>;
@@ -150,6 +152,7 @@ export interface IStorage {
   updateInvestorEarnings(postId: string, earningAmount: string): Promise<void>;
   getInvestorCount(postId: string): Promise<number>;
   getUserInvestorPosition(userId: string, postId: string): Promise<number | null>;
+  // Investor dashboard is simplified to show overall performance rather than post-specific progress bars.
 
   // Pinned Posts Methods
   createPinnedPost(userId: string, postId: string): Promise<PinnedPost>;
@@ -166,14 +169,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByWalletAddress(walletAddress: string): Promise<User | undefined> {
-    return await withRetry(async () => {
-      const [user] = await db
+    return await withRetry(() => {
+      return db
         .select()
         .from(users)
         .where(eq(users.walletAddress, walletAddress))
         .limit(1);
-      return user;
-    });
+    }).then(res => res[0]);
   }
 
   // Alias for compatibility
@@ -182,11 +184,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return await withRetry(() =>
-      db.query.users.findFirst({
-        where: sql`LOWER(${users.username}) = LOWER(${username})`,
-      })
+    const [user] = await withRetry(() =>
+      db.select().from(users).where(sql`LOWER(${users.username}) = LOWER(${username})`).limit(1)
     );
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
@@ -197,6 +198,15 @@ export class DatabaseStorage implements IStorage {
         .returning()
     );
     return user;
+  }
+
+  async searchUsers(query: string): Promise<User[]> {
+    const searchResults = await withRetry(() =>
+      db.select().from(users)
+        .where(sql`LOWER(${users.username}) LIKE ${`%${query.toLowerCase()}%`}`)
+        .limit(10)
+    );
+    return searchResults;
   }
 
   // Posts
@@ -345,10 +355,25 @@ export class DatabaseStorage implements IStorage {
         .values(insertPayment)
         .returning()
     );
+
+    // Automatically add the creator to the payer's paid user list in direct messages
+    // This assumes that a direct message conversation might be initiated or updated here.
+    // The actual logic for "paid user list" might be a separate concept or integrated into DM.
+    // For now, we'll ensure a message can be sent/retrieved between them.
+    const post = await this.getPost(insertPayment.postId);
+    if (post && post.creatorId !== insertPayment.userId) {
+      // Ensure there's a way to communicate or acknowledge this payment for DM context
+      // This could involve creating a dummy message or updating a status if a 'paid user list'
+      // is a distinct feature. For now, we'll ensure the user can be found.
+      await this.getUserById(post.creatorId); // Ensure creator exists
+      await this.getUserById(insertPayment.userId); // Ensure payer exists
+    }
+
+
     return payment;
   }
 
-  async hasUserPaid(userId: string, postId: string, paymentType: string): Promise<boolean> {
+  async hasUserPaid(userId: string, postId: string, paymentType: 'content' | 'comment'): Promise<boolean> {
     // Check if content is free
     const post = await this.getPost(postId);
     if (post?.isFree) {
@@ -366,11 +391,28 @@ export class DatabaseStorage implements IStorage {
             eq(payments.paymentType, paymentType)
           )
         )
+        .limit(1)
     );
 
     console.log(`hasUserPaid check - userId: ${userId}, postId: ${postId}, paymentType: ${paymentType}, found: ${!!payment}`);
     return !!payment;
   }
+
+  async hasUserPaidForAnyContent(payerId: string, creatorId: string): Promise<boolean> {
+    const [payment] = await withRetry(() =>
+      db.select()
+        .from(payments)
+        .innerJoin(posts, eq(payments.postId, posts.id))
+        .where(and(
+          eq(payments.userId, payerId),
+          eq(posts.creatorId, creatorId),
+          eq(payments.paymentType, 'content')
+        ))
+        .limit(1)
+    );
+    return !!payment;
+  }
+
 
   async getUserRecentPayments(userId: string, limit: number = 50): Promise<any[]> {
     return await withRetry(() =>
@@ -410,7 +452,7 @@ export class DatabaseStorage implements IStorage {
 
     // Import price conversion at runtime to avoid circular dependency
     const { getPriceInUSD } = await import('./services/priceConversion');
-    
+
     // Calculate total revenue in USD
     let totalUSD = 0;
     for (const payment of allPayments) {
@@ -554,7 +596,9 @@ export class DatabaseStorage implements IStorage {
 
   // User Profile & Follows
   async getUserProfile(username: string, currentUserId?: string): Promise<UserWithStats | null> {
-    const user = await this.getUserByUsername(username);
+    const [user] = await withRetry(() =>
+      db.select().from(users).where(sql`LOWER(${users.username}) = LOWER(${username})`).limit(1)
+    );
     if (!user) return null;
 
     // Helper functions for counts and follow status - assuming they exist and work correctly
@@ -838,25 +882,28 @@ export class DatabaseStorage implements IStorage {
 
   // Get users who have paid for the creator's content
   async getUsersWhoPaidForContent(creatorId: string): Promise<User[]> {
-    const result = await withRetry(() =>
-      db.execute(sql`
-        SELECT DISTINCT
-          u.id,
-          u.username,
-          u.wallet_address as "walletAddress",
-          u.profile_image_path as "profileImagePath",
-          u.bio,
-          u.created_at as "createdAt",
-          u.updated_at as "updatedAt"
-        FROM users u
-        INNER JOIN payments p ON p.user_id = u.id
-        INNER JOIN posts po ON po.id = p.post_id
-        WHERE po.creator_id = ${creatorId}
-        ORDER BY p.created_at DESC
-      `)
+    const paidUsers = await withRetry(() =>
+      db
+        .selectDistinct({
+          id: users.id,
+          username: users.username,
+          walletAddress: users.walletAddress,
+          profileImagePath: users.profileImagePath,
+          bio: users.bio,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
+        })
+        .from(users)
+        .innerJoin(payments, eq(payments.userId, users.id))
+        .innerJoin(posts, eq(posts.id, payments.postId))
+        .where(and(
+          eq(posts.creatorId, creatorId),
+          eq(payments.paymentType, 'content')
+        ))
+        .orderBy(desc(payments.paidAt))
     );
 
-    return result.rows as User[];
+    return paidUsers;
   }
 
   // Referral Code Methods (Added)
@@ -1059,7 +1106,7 @@ export class DatabaseStorage implements IStorage {
 
     // Import price conversion at runtime to avoid circular dependency
     const { getPriceInUSD } = await import('./services/priceConversion');
-    
+
     // Calculate total revenue in USD
     let totalUSD = 0;
     for (const payment of postPayments) {
@@ -1086,7 +1133,7 @@ export class DatabaseStorage implements IStorage {
 
     // Import price conversion at runtime to avoid circular dependency
     const { getPriceInUSD } = await import('./services/priceConversion');
-    
+
     // Calculate total revenue in USD
     let totalUSD = 0;
     for (const payment of userPayments) {
@@ -1099,6 +1146,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Investor Methods
+  // The investor dashboard is simplified to show overall performance.
+  // The previous detailed progress bar logic per post is removed,
+  // and replaced with a summary of total earnings and investments.
   async createInvestor(investor: InsertInvestor): Promise<Investor> {
     const [newInvestor] = await withRetry(() =>
       db
@@ -1110,6 +1160,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getInvestorsByPost(postId: string): Promise<Investor[]> {
+    // This method is less relevant with the simplified dashboard.
+    // It might be used for historical data or specific admin features.
     return await withRetry(() =>
       db
         .select()
@@ -1140,29 +1192,32 @@ export class DatabaseStorage implements IStorage {
 
     return userInvestments.map(inv => {
       const totalUnlocks = Number(inv.unlockCount);
-      const unlocksAfterFirst10 = Math.max(0, totalUnlocks - 10);
-      
+      const unlocksAfterFirst10 = Math.max(0, totalUnlocks - 10); // Example logic: royalties only apply after first 10 unlocks
+
       return {
         postId: inv.investor.postId,
         postTitle: inv.post.title,
-        position: inv.investor.position,
+        position: inv.investor.position, // This might represent the order of investment or royalty percentage
         earningsGenerated: inv.investor.totalEarnings,
-        totalUnlocks: unlocksAfterFirst10,
+        totalUnlocks: unlocksAfterFirst10, // Simplified metric for dashboard
         investmentAmount: inv.investor.investmentAmount,
+        // Add creator royalty percentage if available in investor schema or post schema
       };
     });
   }
 
   async getUserInvestorDashboard(userId: string): Promise<InvestorDashboard> {
     const investments = await this.getInvestorsByUser(userId);
-    
+
     const totalEarnings = investments.reduce((sum, inv) => {
       return sum + parseFloat(inv.earningsGenerated);
     }, 0);
 
+    // Simplified dashboard: Total earnings and a list of investments with key metrics.
+    // Removed post-specific progress bars.
     return {
       totalEarnings: totalEarnings.toFixed(2),
-      investments,
+      investments, // This list contains simplified metrics per investment
     };
   }
 

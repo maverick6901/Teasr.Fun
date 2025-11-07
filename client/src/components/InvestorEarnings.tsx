@@ -1,6 +1,8 @@
+
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, TrendingUp, Users, Lock } from "lucide-react";
+import { DollarSign, TrendingUp, Users, Info } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { motion } from "framer-motion";
 
 interface InvestorEarning {
@@ -22,6 +24,33 @@ export function InvestorEarnings({
   investments,
   className = ""
 }: InvestorEarningsProps) {
+  // Calculate aggregate stats
+  const totalInvestments = investments.length;
+  const totalUnlocks = investments.reduce((sum, inv) => sum + inv.totalUnlocks, 0);
+  
+  // Calculate overall progress (example: based on earnings milestones)
+  const earningsValue = parseFloat(totalEarnings);
+  const milestones = [10, 50, 100, 500, 1000]; // Example earning milestones in USD
+  let currentMilestone = milestones[0];
+  let nextMilestone = milestones[1];
+  
+  for (let i = 0; i < milestones.length - 1; i++) {
+    if (earningsValue >= milestones[i] && earningsValue < milestones[i + 1]) {
+      currentMilestone = milestones[i];
+      nextMilestone = milestones[i + 1];
+      break;
+    } else if (earningsValue >= milestones[milestones.length - 1]) {
+      currentMilestone = milestones[milestones.length - 2];
+      nextMilestone = milestones[milestones.length - 1];
+      break;
+    }
+  }
+  
+  const progressPercent = Math.min(
+    ((earningsValue - currentMilestone) / (nextMilestone - currentMilestone)) * 100,
+    100
+  );
+
   return (
     <div className={`space-y-6 ${className}`} data-testid="investor-earnings">
       {/* Total Earnings Card */}
@@ -29,7 +58,7 @@ export function InvestorEarnings({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm text-muted-foreground font-medium mb-1">
-              Investor Earnings
+              Total Investor Earnings
             </p>
             <div className="flex items-center gap-2">
               <DollarSign className="w-6 h-6 text-purple-600" />
@@ -38,13 +67,41 @@ export function InvestorEarnings({
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              From {investments.length} {investments.length === 1 ? "investment" : "investments"}
+              From {totalInvestments} {totalInvestments === 1 ? "investment" : "investments"} • {totalUnlocks} total unlocks
             </p>
           </div>
           <Badge className="bg-gradient-to-r from-purple-600 to-pink-600 text-white">
             <TrendingUp className="w-3 h-3 mr-1" />
             Active Investor
           </Badge>
+        </div>
+      </Card>
+
+      {/* Single Progress Bar with Explanation */}
+      <Card className="p-6 border-purple-500/20">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Earnings Progress</h3>
+            <span className="text-sm text-muted-foreground">
+              ${currentMilestone} → ${nextMilestone}
+            </span>
+          </div>
+          
+          <Progress value={progressPercent} className="h-2" />
+          
+          <div className="flex items-start gap-2 p-3 bg-purple-500/10 border-l-2 border-purple-500 rounded">
+            <Info className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              <p className="font-semibold text-foreground mb-1">How Investor Earnings Work:</p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Creators set max investors (1-100) and revenue share % per post</li>
+                <li>First buyers who choose "Investor Option" secure spots</li>
+                <li>Once all spots filled, your share is distributed from each new unlock</li>
+                <li>Platform fee: $0.05 USDC per transaction</li>
+                <li>Your earnings = (Revenue Share % ÷ Total Investors) × (Payment - Platform Fee)</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -77,10 +134,6 @@ export function InvestorEarnings({
                         <div className="flex items-center gap-1">
                           <Users className="w-3 h-3" />
                           {investment.totalUnlocks} unlocks
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          Revenue share
                         </div>
                       </div>
                     </div>

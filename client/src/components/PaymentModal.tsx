@@ -174,7 +174,7 @@ export function PaymentModal({ isOpen, onClose, post, onSuccess, paymentType = '
       setPaymentComplete(true);
 
       if (!result.alreadyPaid) {
-        // Show message prompt for content payments, immediate success for comments
+        // Show message prompt ONLY for content payments (not comments)
         if (!isCommentUnlock) {
           setTimeout(() => {
             setShowMessagePrompt(true);

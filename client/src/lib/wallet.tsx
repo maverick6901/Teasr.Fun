@@ -93,6 +93,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     if (type === 'phantom') {
       if (win.phantom?.ethereum) return win.phantom.ethereum;
+      if (win.solana?.isPhantom) return win.solana;
       if (win.ethereum?.providers) {
         const phantom = win.ethereum.providers.find((p: any) => p.isPhantom);
         if (phantom) return phantom;
@@ -101,13 +102,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
 
     if (type === 'coinbase') {
+      // Try multiple detection methods for Coinbase Wallet
       if (win.ethereum?.providers) {
-        const coinbase = win.ethereum.providers.find((p: any) => p.isCoinbaseWallet || p.isCoinbaseBrowser);
+        const coinbase = win.ethereum.providers.find((p: any) => 
+          p.isCoinbaseWallet || p.isCoinbaseBrowser || p.selectedProvider?.isCoinbaseWallet
+        );
         if (coinbase) return coinbase;
       }
-      if (win.ethereum?.isCoinbaseWallet || win.ethereum?.isCoinbaseBrowser) return win.ethereum;
+      if (win.ethereum?.isCoinbaseWallet || win.ethereum?.isCoinbaseBrowser) {
+        return win.ethereum;
+      }
       if (win.coinbaseWalletExtension) return win.coinbaseWalletExtension;
-      if (win.coinbaseSolana || win.coinbase) return win.coinbaseSolana || win.coinbase;
+      if (win.coinbaseSolana) return win.coinbaseSolana;
+      // Legacy check
+      if (win.web3?.currentProvider?.isCoinbaseWallet) return win.web3.currentProvider;
       return null;
     }
 

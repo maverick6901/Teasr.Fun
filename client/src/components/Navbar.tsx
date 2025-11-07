@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useQuery } from '@tanstack/react-query';
 import type { User as UserType } from '@shared/schema';
 import { UploadModal } from './UploadModal';
+import { UserSearch } from './UserSearch';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
@@ -80,6 +81,13 @@ export function Navbar() {
               </div>
             </div>
           </Link>
+
+          {/* Search Bar - Desktop Only */}
+          {address && (
+            <div className="block flex-1 max-w-md mx-4 w-full">
+              <UserSearch />
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center space-x-1 sm:space-x-2 md:space-x-3">
