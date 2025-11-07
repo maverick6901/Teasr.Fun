@@ -199,8 +199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       const currentUserId = user?.id;
 
-      // Username lookup should be case-insensitive
-      const profile = await storage.getUserProfile(req.params.username.toLowerCase(), currentUserId);
+      const profile = await storage.getUserProfile(req.params.username, currentUserId);
 
       if (!profile) {
         return res.status(404).json({ error: 'User not found' });
@@ -287,12 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get users who have paid for current user's content
   app.get('/api/users/paid-for-content', async (req, res) => {
     try {
-      const walletAddress = req.headers['x-wallet-address'] as string;
-      if (!walletAddress) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-
-      const user = await storage.getUserByWalletAddress(walletAddress);
+      const user = await getCurrentUser(req);
       if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
@@ -817,6 +811,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           postId: post.id,
           message: `purchased your content for ${amount} ${cryptocurrency}`,
         }).catch(err => console.error('Error creating purchase notification:', err));
+
+        // Auto-create a welcome message to establish the DM conversation
+        try {
+          await storage.createDirectMessage({
+            senderId: post.creatorId,
+            receiverId: user.id,
+            postId: post.id,
+            content: `Thanks for unlocking my content! Feel free to message me anytime.`,
+          });
+          console.log(`Auto-created DM conversation between creator ${post.creatorId} and buyer ${user.id}`);
+        } catch (dmError) {
+          console.error('Error creating auto-DM:', dmError);
+          // Don't fail the payment if DM creation fails
+        }
       }
 
       // Also grant comment access if comments are locked
@@ -1030,18 +1038,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get conversations (list of users with messages)
   app.get('/api/messages/conversations', async (req, res) => {
-    const walletAddress = req.headers['x-wallet-address'] as string;
-    if (!walletAddress) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
 
-    const user = await storage.getUserByWallet(walletAddress);
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      const conversations = await storage.getUserConversations(user.id);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error('Get conversations error:', error);
+      res.status(500).json({ error: error.message });
     }
-
-    const conversations = await storage.getUserConversations(user.id);
-    res.json(conversations);
   });
 
   // Get messages with a specific user
