@@ -10,21 +10,24 @@ interface VoteButtonsProps {
   upvoteCount: number;
   downvoteCount: number;
   userVote: 'up' | 'down' | null;
-  onVote: (postId: string, voteType: 'up' | 'down') => void;
+  onVote?: (postId: string, voteType: 'up' | 'down' | null) => void;
 }
 
 export function VoteButtons({ postId, upvoteCount, downvoteCount, userVote, onVote }: VoteButtonsProps) {
   const [localVote, setLocalVote] = useState<'up' | 'down' | null>(userVote);
+  const [localUpvotes, setLocalUpvotes] = useState(upvoteCount);
+  const [localDownvotes, setLocalDownvotes] = useState(downvoteCount);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const voteMutation = useMutation({
-    mutationFn: async (voteType: 'up' | 'down') => {
+    mutationFn: async (voteType: 'up' | 'down' | null) => {
       const walletAddress = (window as any).walletAddress;
       if (!walletAddress) {
         throw new Error('Please connect your wallet to vote');
       }
-      
+
       const response = await fetch(`/api/posts/${postId}/vote`, {
         method: 'POST',
         headers: {
@@ -38,15 +41,35 @@ export function VoteButtons({ postId, upvoteCount, downvoteCount, userVote, onVo
         const error = await response.json();
         throw new Error(error.error || 'Failed to vote');
       }
+
       return response.json();
     },
-    onSuccess: (_, voteType) => {
-      setLocalVote(voteType);
+    onSuccess: (data, voteType) => {
+      // Update local counts safely without double incrementing
+      setLocalVote((prev) => {
+        let newUpvotes = localUpvotes;
+        let newDownvotes = localDownvotes;
+
+        // Undo previous vote
+        if (prev === 'up') newUpvotes--;
+        if (prev === 'down') newDownvotes--;
+
+        // Apply new vote
+        if (voteType === 'up') newUpvotes++;
+        if (voteType === 'down') newDownvotes++;
+
+        setLocalUpvotes(newUpvotes);
+        setLocalDownvotes(newDownvotes);
+
+        return voteType;
+      });
+
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
-      onVote(postId, voteType);
+
+      // Only call onVote if it exists, and don’t double update UI
+      if (onVote) onVote(postId, voteType);
     },
     onError: (error: Error) => {
-      // Only show error toast for actual failures
       console.error('Vote error:', error);
       toast({
         title: 'Vote failed',
@@ -57,7 +80,11 @@ export function VoteButtons({ postId, upvoteCount, downvoteCount, userVote, onVo
   });
 
   const handleVote = (voteType: 'up' | 'down') => {
-    if (localVote === voteType) return; // Don't vote twice
+    if (localVote === voteType) {
+      // If user clicks same vote again, remove vote
+      voteMutation.mutate(null);
+      return;
+    }
     voteMutation.mutate(voteType);
   };
 
@@ -75,7 +102,7 @@ export function VoteButtons({ postId, upvoteCount, downvoteCount, userVote, onVo
         disabled={voteMutation.isPending}
       >
         <ThumbsUp className="w-4 h-4 mr-1" />
-        <span className="font-semibold">{upvoteCount}</span>
+        <span className="font-semibold">{localUpvotes}</span>
       </Button>
 
       <Button
@@ -90,7 +117,7 @@ export function VoteButtons({ postId, upvoteCount, downvoteCount, userVote, onVo
         disabled={voteMutation.isPending}
       >
         <ThumbsDown className="w-4 h-4 mr-1" />
-        <span className="font-semibold">{downvoteCount}</span>
+        <span className="font-semibold">{localDownvotes}</span>
       </Button>
     </div>
   );
