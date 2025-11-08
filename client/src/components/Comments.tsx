@@ -16,7 +16,7 @@ interface CommentsProps {
   hasCommentAccess: boolean;
   onPayForComments: () => void;
   onCommentAdded: () => void;
-  compact?: boolean; // Optional compact mode for embedding in PostCard
+  compact?: boolean;
 }
 
 export function Comments({ post, comments, hasCommentAccess, onPayForComments, onCommentAdded, compact = false }: CommentsProps) {
@@ -52,7 +52,6 @@ export function Comments({ post, comments, hasCommentAccess, onPayForComments, o
     }
   };
 
-  // Locked state - comments require payment
   if (post.commentsLocked && !hasCommentAccess) {
     const lockedContent = (
       <div className="space-y-4">
@@ -78,6 +77,22 @@ export function Comments({ post, comments, hasCommentAccess, onPayForComments, o
       <Card className="p-8 text-center" data-testid="comments-locked">{lockedContent}</Card>
     );
   }
+
+  // Function to parse @mentions in comment content
+  const renderCommentContent = (content: string) => {
+    const parts = content.split(/(@\w+)/g); // split by @username
+    return parts.map((part, idx) => {
+      if (part.startsWith('@')) {
+        const username = part.slice(1);
+        return (
+          <Link key={idx} href={`/profile/${username}`}>
+            <span className="text-blue-500 hover:underline cursor-pointer">{part}</span>
+          </Link>
+        );
+      }
+      return <span key={idx}>{part}</span>;
+    });
+  };
 
   const commentsContent = (
     <>
@@ -139,27 +154,27 @@ export function Comments({ post, comments, hasCommentAccess, onPayForComments, o
                 className="flex space-x-3 pb-3 border-b border-border last:border-0 last:pb-0"
                 data-testid={`comment-${comment.id}`}
               >
-              <Avatar className={`${compact ? 'h-8 w-8' : 'h-10 w-10'} flex-shrink-0`}>
-                <AvatarFallback className="bg-primary/10 text-primary">
-                  <User className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline space-x-2 mb-1">
-                  <Link href={`/profile/${comment.user.username}`}>
-                    <span className="font-semibold text-sm hover:underline cursor-pointer" data-testid={`comment-author-${comment.id}`}>
-                      {comment.user.username}
+                <Avatar className={`${compact ? 'h-8 w-8' : 'h-10 w-10'} flex-shrink-0`}>
+                  <AvatarFallback className="bg-primary/10 text-primary">
+                    <User className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline space-x-2 mb-1">
+                    <Link href={`/profile/${comment.user.username}`}>
+                      <span className="font-semibold text-sm hover:underline cursor-pointer" data-testid={`comment-author-${comment.id}`}>
+                        {comment.user.username}
+                      </span>
+                    </Link>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(comment.createdAt).toLocaleDateString()}
                     </span>
-                  </Link>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(comment.createdAt).toLocaleDateString()}
-                  </span>
+                  </div>
+                  <p className="text-sm" data-testid={`comment-content-${comment.id}`}>
+                    {renderCommentContent(comment.content)}
+                  </p>
                 </div>
-                <p className="text-sm" data-testid={`comment-content-${comment.id}`}>
-                  {comment.content}
-                </p>
-              </div>
-            </motion.div>
+              </motion.div>
             ))}
           </AnimatePresence>
         )}
@@ -173,3 +188,4 @@ export function Comments({ post, comments, hasCommentAccess, onPayForComments, o
     <Card className="p-6" data-testid="comments-section">{commentsContent}</Card>
   );
 }
+
