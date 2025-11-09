@@ -89,7 +89,7 @@ export default function Messages() {
         queryClient.invalidateQueries({ queryKey: ['messages', selectedUser.id] });
       }
 
-      queryClient.invalidateQueries({ queryKey: ['payment-relationships', currentUser?.id] });
+      queryClient.invalidateQueries({ queryKey: ['conversations', address] });
     }
   });
 
