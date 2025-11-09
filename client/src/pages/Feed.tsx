@@ -153,12 +153,64 @@ export default function Feed() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center mb-12">
-            <h1 className="text-4xl sm:text-5xl font-bold font-display mb-4 bg-gradient-to-r from-primary via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <motion.h1 
+              className="text-4xl sm:text-5xl font-bold font-display mb-4 bg-gradient-to-r from-primary via-purple-600 to-pink-600 bg-clip-text text-transparent"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ 
+                opacity: 1, 
+                y: 0,
+                backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
+              }}
+              transition={{ 
+                opacity: { duration: 0.6 },
+                y: { duration: 0.6 },
+                backgroundPosition: { 
+                  duration: 5,
+                  repeat: Infinity,
+                  ease: "linear"
+                }
+              }}
+              style={{
+                backgroundSize: '200% 200%'
+              }}
+            >
               GET PAID TO POST
-            </h1>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Token Gate your Content & Earn with x402 Protocol
-            </p>
+            </motion.h1>
+            <motion.p 
+              className="text-lg text-muted-foreground max-w-2xl mx-auto"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+            >
+              <motion.span
+                className="inline-block"
+                animate={{ 
+                  scale: [1, 1.05, 1],
+                }}
+                transition={{ 
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+              >
+                Token Gate your Content
+              </motion.span>
+              {' & Earn with '}
+              <motion.span
+                className="inline-block font-semibold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent"
+                animate={{ 
+                  opacity: [0.7, 1, 0.7],
+                }}
+                transition={{ 
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  delay: 1
+                }}
+              >
+                x402 Protocol
+              </motion.span>
+            </motion.p>
           </div>
 
           {/* Connect Wallet CTA */}
