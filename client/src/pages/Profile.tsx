@@ -377,7 +377,7 @@ export default function Profile() {
                   <div className="text-xl sm:text-2xl font-bold">{profile.followingCount || 0}</div>
                   <div className="text-xs sm:text-sm text-muted-foreground">Following</div>
                 </div>
-                <RevenueDisplay userId={profile.id} walletAddress={address} />
+                <RevenueDisplay userId={profile.id} walletAddress={isOwnProfile ? address : null} />
               </div>
             </div>
           </div>

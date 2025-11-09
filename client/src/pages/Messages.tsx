@@ -13,8 +13,7 @@ import type { DirectMessageWithUsers, User as UserType } from '@shared/schema';
 import { useLocation } from 'wouter';
 import { Navbar } from '@/components/Navbar';
 import { useWebSocket } from '@/lib/useWebSocket';
-
-const API_URL = 'https://c762b603-597d-4da8-ba6b-42f2889fe9d1-00-3qi12bbre3n9x.picard.replit.dev';
+import { apiRequest } from '@/lib/queryClient';
 
 export default function Messages() {
   const { address } = useWallet();
@@ -36,13 +35,8 @@ export default function Messages() {
     queryKey: ['current-user', address],
     enabled: !!address,
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/api/users/auth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: address }),
-      });
-      if (!res.ok) throw new Error('Auth failed');
-      return res.json() as Promise<UserType>;
+      const response = await apiRequest('POST', '/api/users/auth', { walletAddress: address });
+      return response.json() as Promise<UserType>;
     },
   });
 
@@ -53,7 +47,7 @@ export default function Messages() {
     queryKey: ['payment-relationships', currentUser?.id],
     enabled: !!currentUser?.id && !!address,
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/api/users/payment-relationships`, {
+      const res = await fetch('/api/users/payment-relationships', {
         headers: { 'x-wallet-address': address || '' },
       });
       if (!res.ok) return { patrons: [], creatorsPaid: [] };
@@ -79,7 +73,7 @@ export default function Messages() {
     enabled: !!selectedUser && !!address,
     queryFn: async () => {
       if (!selectedUser) return [];
-      const res = await fetch(`${API_URL}/api/messages/${selectedUser.id}`, {
+      const res = await fetch(`/api/messages/${selectedUser.id}`, {
         headers: { 'x-wallet-address': address || '' },
       });
       if (!res.ok) throw new Error('Failed to load messages');
@@ -129,24 +123,11 @@ export default function Messages() {
   // -----------------------------
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      if (!selectedUser || !address) throw new Error('No recipient or wallet');
-      const payload = { content: content.trim() };
-
-      const res = await fetch(`${API_URL}/api/messages/${selectedUser.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-wallet-address': address,
-        },
-        body: JSON.stringify(payload),
+      if (!selectedUser) throw new Error('No recipient selected');
+      const response = await apiRequest('POST', `/api/messages/${selectedUser.id}`, { 
+        content: content.trim() 
       });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || `HTTP ${res.status} error`);
-      }
-
-      return res.json() as Promise<DirectMessageWithUsers>;
+      return response.json() as Promise<DirectMessageWithUsers>;
     },
     onSuccess: () => {
       setInput('');
@@ -163,7 +144,7 @@ export default function Messages() {
   // -----------------------------
   useEffect(() => {
     if (selectedUser && address) {
-      fetch(`${API_URL}/api/messages/${selectedUser.id}/read`, {
+      fetch(`/api/messages/${selectedUser.id}/read`, {
         method: 'PUT',
         headers: { 'x-wallet-address': address },
       }).catch(console.error);
