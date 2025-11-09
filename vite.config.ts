@@ -20,6 +20,7 @@ export default defineConfig(async () => ({
       "@": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./client/src"),
       "@shared": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./shared"),
       "@assets": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./attached_assets"),
+      buffer: "buffer",
     },
   },
   root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./client"),
@@ -54,14 +55,6 @@ export default defineConfig(async () => ({
       define: {
         global: "globalThis",
       },
-    },
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./client/src"),
-      "@shared": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./shared"),
-      "@assets": path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./attached_assets"),
-      buffer: "buffer",
     },
   },
 }));
