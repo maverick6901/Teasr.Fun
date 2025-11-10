@@ -6,15 +6,11 @@ import { useToast } from '@/hooks/use-toast';
 if (typeof window !== 'undefined') {
   (window as any).Buffer = undefined;
   (window as any).global = window;
+  (window as any).process = undefined;
   
-  // Additional safeguard for mobile wallet apps
-  try {
-    if ((window as any).ethereum?.isPhantom) {
-      (window as any).process = undefined;
-    }
-  } catch (e) {
-    console.warn('Buffer polyfill prevention:', e);
-  }
+  // Detect mobile browser
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  (window as any).isMobileBrowser = isMobile;
 }
 
 type WalletType = 'metamask' | 'coinbase' | 'phantom' | null;
@@ -102,27 +98,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const win = window as any;
 
     if (type === 'phantom') {
-      // Check for Phantom's Ethereum provider first (works for both desktop and mobile)
+      const isMobile = (window as any).isMobileBrowser;
+      
+      // For mobile, try direct ethereum object first (in-app browser)
+      if (isMobile && win.ethereum?.isPhantom) {
+        return win.ethereum;
+      }
+      
+      // Desktop: Check for Phantom's explicit provider
       if (win.phantom?.ethereum) {
         return win.phantom.ethereum;
       }
       
       // Check in providers array (multi-wallet scenario)
-      if (win.ethereum?.providers) {
+      if (win.ethereum?.providers && Array.isArray(win.ethereum.providers)) {
         const phantom = win.ethereum.providers.find((p: any) => 
           p.isPhantom && !p.isCoinbaseWallet && !p.isMetaMask
         );
         if (phantom) return phantom;
       }
       
-      // Check if default ethereum is Phantom (mobile deep link scenario)
+      // Final fallback: check if default ethereum is Phantom
       if (win.ethereum?.isPhantom && !win.ethereum?.isCoinbaseWallet && !win.ethereum?.isMetaMask) {
         return win.ethereum;
-      }
-      
-      // Fallback to Solana provider (for Solana-only Phantom connections)
-      if (win.solana?.isPhantom) {
-        return win.solana;
       }
       
       return null;
@@ -180,20 +178,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setIsConnecting(true);
     try {
-      // Special handling for Phantom mobile
-      if (walletType === 'phantom' && provider.isPhantom) {
-        // Ensure provider is ready
-        if (provider.on) {
+      const isMobile = (window as any).isMobileBrowser;
+      
+      // Clean up existing listeners for mobile
+      if (isMobile && provider.removeAllListeners) {
+        try {
           provider.removeAllListeners();
+        } catch (e) {
+          console.warn('Could not remove listeners:', e);
         }
       }
       
+      // Create provider with explicit network setting
       const ethersProvider = new ethers.providers.Web3Provider(provider, 'any');
       
-      // Request accounts with timeout for mobile
+      // Request accounts with appropriate timeout
+      const timeoutMs = isMobile ? 60000 : 30000; // Longer timeout for mobile
       const accountsPromise = ethersProvider.send('eth_requestAccounts', []);
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 30000)
+        setTimeout(() => reject(new Error('Connection timeout - please try again')), timeoutMs)
       );
       
       await Promise.race([accountsPromise, timeoutPromise]);

@@ -26,6 +26,7 @@ import { db } from './db';
 import { users, posts, payments, comments, votes, investors, platformFees, commentLikes } from '@shared/schema';
 import { eq, desc, and, sql, count, inArray } from 'drizzle-orm';
 import { x402PaymentService } from './services/x402-payment';
+import { getFromObjectStorage } from './services/objectStorage';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -190,7 +191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/users/search', async (req, res) => {
     try {
       const query = req.query.q as string;
-      
+
       if (!query || query.length < 2) {
         return res.json([]);
       }
@@ -640,7 +641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`[PAYMENT] Payment endpoint called - postId: ${req.params.id}`);
       console.log(`[PAYMENT] Request body:`, JSON.stringify(req.body, null, 2));
-      
+
       const user = await getCurrentUser(req);
       if (!user) {
         console.log(`[PAYMENT ERROR] Unauthorized - no user found`);
@@ -648,7 +649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[PAYMENT] User authenticated - userId: ${user.id}, username: ${user.username}`);
-      
+
       const { amount, transactionHash, cryptocurrency, network, isBuyout } = req.body;
       const post = await storage.getPost(req.params.id);
 
@@ -657,14 +658,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Track view when payment modal is opened (before actual payment)
-      await storage.incrementViewCount(req.params.id).catch(err => 
+      await storage.incrementViewCount(req.params.id).catch(err =>
         console.error('Error incrementing view count:', err)
       );
 
       // Check if cryptocurrency is accepted (normalize both sides)
       const acceptedCryptos = post.acceptedCryptos.split(',').map(c => c.trim().toUpperCase());
       const normalizedCrypto = (cryptocurrency || 'USDC').toUpperCase().trim();
-      
+
       if (!acceptedCryptos.includes(normalizedCrypto)) {
         console.log(`Payment rejected - ${normalizedCrypto} not in accepted list: ${acceptedCryptos.join(', ')}`);
         return res.status(400).json({ error: `${normalizedCrypto} is not accepted for this content. Accepted: ${post.acceptedCryptos}` });
@@ -692,16 +693,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Prevent buyout if max investor spots filled, but allow regular unlock
       if (isBuyout && investorCount >= maxInvestorSlots) {
-        return res.status(400).json({ 
-          error: `All ${maxInvestorSlots} investor spots are filled. You can unlock at regular price.` 
+        return res.status(400).json({
+          error: `All ${maxInvestorSlots} investor spots are filled. You can unlock at regular price.`
         });
       }
 
       // Calculate actual payment amount
       // If buyout is selected AND spots available AND buyoutPrice exists, use buyout price
       // Otherwise use regular price
-      const actualPrice = (isBuyout && investorCount < maxInvestorSlots && post.buyoutPrice) 
-        ? post.buyoutPrice 
+      const actualPrice = (isBuyout && investorCount < maxInvestorSlots && post.buyoutPrice)
+        ? post.buyoutPrice
         : post.price;
 
       console.log(`Calculated price: ${actualPrice} (isBuyout: ${isBuyout}, investorCount: ${investorCount}/${maxInvestorSlots})`);
@@ -718,7 +719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transactionHash: transactionHash || `mock_tx_${cryptocurrency}_${Date.now()}`,
         paymentType: 'content'
       });
-      
+
       const paymentRecord = await storage.createPayment({
         userId: user.id,
         postId: post.id,
@@ -729,7 +730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         transactionHash: transactionHash || `mock_tx_${cryptocurrency}_${Date.now()}`,
         paymentType: 'content',
       });
-      
+
       console.log(`[PAYMENT SUCCESS] Payment record created - paymentId: ${paymentRecord.id}`);
 
       // Platform fee configuration (0.05 USDC on all locked content)
@@ -785,7 +786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           investmentAmount: post.buyoutPrice || post.price,
           totalEarnings: '0.00',
         });
-        
+
         console.log(`User ${user.id} became investor #${position}/${maxInvestorSlots} for post ${post.id}`);
       } else if (paymentNumber > maxInvestorSlots && existingInvestors.length === maxInvestorSlots && parseFloat(post.investorRevenueShare || '0') > 0) {
         // This is a payment after all investor slots filled - distribute revenue share
@@ -794,7 +795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const investorSharePercentage = parseFloat(post.investorRevenueShare || '0') / 100;
         const totalInvestorShare = revenueAfterPlatformFee * investorSharePercentage;
         const earningsPerInvestor = totalInvestorShare / existingInvestors.length;
-        
+
         console.log(`Payment #${paymentNumber} - Distributing investor revenue:
           Payment: $${paymentAmount}
           Platform Fee: $${PLATFORM_FEE_USDC}
@@ -802,7 +803,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Investor Share %: ${post.investorRevenueShare}%
           Total to Investors: $${totalInvestorShare.toFixed(6)}
           Per Investor (${existingInvestors.length} investors): $${earningsPerInvestor.toFixed(6)}`);
-        
+
         // Update investor earnings in database
         for (const investor of existingInvestors) {
           const currentEarnings = parseFloat(investor.totalEarnings || '0');
@@ -810,18 +811,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await db.update(investors)
             .set({ totalEarnings: newEarnings })
             .where(eq(investors.id, investor.id));
-          
+
           console.log(`Investor ${investor.userId} (position ${investor.position}): $${investor.totalEarnings} -> $${newEarnings}`);
         }
 
         // Get investor wallet addresses for x402 payment processing
         const investorUserIds = existingInvestors.map(inv => inv.userId);
-        const investorUsers = investorUserIds.length > 0 
+        const investorUsers = investorUserIds.length > 0
           ? await db.select()
               .from(users)
               .where(inArray(users.id, investorUserIds))
           : [];
-        
+
         const investorsWithWallets = existingInvestors.map(inv => {
           const investorUser = investorUsers.find(u => u.id === inv.userId);
           return {
@@ -860,7 +861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedInvestors = await db.select()
         .from(investors)
         .where(eq(investors.postId, post.id));
-      
+
       // Broadcast investor count and earnings update to all connected clients
       broadcast({
         type: 'buyoutUpdate',
@@ -873,7 +874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })),
         },
       });
-      
+
       // Broadcast individual earnings updates to each investor
       for (const investor of updatedInvestors) {
         broadcast({
@@ -979,7 +980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Platform fee for comment unlock (0.05 USDC)
       const PLATFORM_FEE_USDC = 0.05;
       const PLATFORM_WALLET = '0x47aB5ba5f987A8f75f8Ef2F0D8FF33De1A04a020';
-      
+
       await db.insert(platformFees).values({
         paymentId: commentPaymentRecord.id,
         postId: post.id,
@@ -1276,7 +1277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const comments = await storage.getCommentsByPost(req.params.id);
-      
+
       // Add like info for each comment if user is logged in
       const commentsWithLikes = await Promise.all(
         comments.map(async (comment) => {
@@ -1293,7 +1294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return { ...comment, hasUserLiked };
         })
       );
-      
+
       res.json(commentsWithLikes);
     } catch (error: any) {
       console.error('Get comments error:', error);
@@ -1412,7 +1413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existingLike) {
         // Unlike - remove the like
         await db.delete(commentLikes).where(eq(commentLikes.id, existingLike.id));
-        
+
         // Decrement like count
         await db.update(comments)
           .set({ likeCount: sql`${comments.likeCount} - 1` })
@@ -1425,7 +1426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           commentId: req.params.commentId,
           userId: user.id,
         });
-        
+
         // Increment like count
         await db.update(comments)
           .set({ likeCount: sql`${comments.likeCount} + 1` })
@@ -1560,7 +1561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .then(result => result[0]?.count ?? 0);
 
           const unlocksAfterFirst10 = Math.max(0, totalUnlocks - 10);
-          
+
           console.log(`Post ${investment.postId}: ${totalUnlocks} total unlocks, ${unlocksAfterFirst10} after first 10, earnings: $${investment.totalEarnings}`);
 
           return {
@@ -1725,8 +1726,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: `Backfilled earnings for ${updatedCount} investors across ${postsWithBuyout.length} posts`,
         updatedCount,
         postsProcessed: postsWithBuyout.length,
@@ -1773,12 +1774,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve uploaded files
   const express = await import('express');
   const USE_OBJECT_STORAGE = process.env.REPL_DEPLOYMENT === '1';
-  
+
   if (USE_OBJECT_STORAGE) {
     // Serve thumbnails from Object Storage
     app.get('/uploads/thumbnails/:filename', async (req, res) => {
       try {
-        const { getFromObjectStorage } = await import('./services/objectStorage');
         const buffer = await getFromObjectStorage(`uploads/thumbnails/${req.params.filename}`);
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'public, max-age=31536000');
@@ -1788,10 +1788,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(404).send('Not found');
       }
     });
+
+    // Serve profile images from Object Storage
+    app.get('/api/profile-images/:filename', async (req, res) => {
+      try {
+        const filename = req.params.filename;
+        const buffer = await getFromObjectStorage(`uploads/thumbnails/${filename}`);
+
+        // Determine content type from extension
+        const ext = filename.split('.').pop()?.toLowerCase();
+        const contentTypes: Record<string, string> = {
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'png': 'image/png',
+          'gif': 'image/gif',
+          'webp': 'image/webp'
+        };
+
+        res.set('Content-Type', contentTypes[ext || 'jpg'] || 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=86400');
+        res.send(buffer);
+      } catch (error) {
+        console.error('Error serving profile image from Object Storage:', error);
+        res.status(404).send('Not found');
+      }
+    });
+
+    // Serve post media from Object Storage
+    app.get('/api/posts/:id/media', async (req, res) => {
+      try {
+        const postId = parseInt(req.params.id);
+        const walletAddress = req.headers['x-wallet-address'] as string || req.query.wallet as string;
+
+        const post = await storage.getPost(postId);
+        if (!post) {
+          console.error(`Post ${postId} not found`);
+          return res.status(404).json({ error: 'Post not found' });
+        }
+
+        // Check if user has paid for this content or it's free
+        const hasAccess = post.isFree || (walletAddress && await storage.hasUserPaidForPost(walletAddress, postId));
+
+        if (!hasAccess) {
+          console.log(`Access denied for post ${postId}, wallet: ${walletAddress}`);
+          return res.status(403).json({ error: 'Payment required' });
+        }
+
+        try {
+          // Decrypt and serve the file
+          const encryptedBuffer = await readEncryptedFile(post.encryptedMediaPath);
+          const decryptedBuffer = decryptBuffer(encryptedBuffer, post.encryptedKey, post.iv, post.authTag);
+
+          res.set('Content-Type', post.mediaType === 'image' ? 'image/jpeg' : 'video/mp4'); // Adjust mime type as needed
+          res.set('Cache-Control', 'private, max-age=3600');
+          res.set('Access-Control-Allow-Origin', '*');
+          res.set('Content-Length', decryptedBuffer.length.toString());
+          res.send(decryptedBuffer);
+        } catch (fileError) {
+          console.error(`Error reading or decrypting file for post ${postId}:`, fileError);
+          return res.status(500).json({ error: 'File not found or corrupted' });
+        }
+      } catch (error) {
+        console.error('Error serving media:', error);
+        res.status(500).json({ error: 'Failed to serve media' });
+      }
+    });
   } else {
     // Serve from local filesystem in development
     app.use('/uploads/thumbnails', express.default.static(path.join(process.cwd(), 'uploads', 'thumbnails')));
+
+    // Serve profile images from local filesystem
+    app.get('/api/profile-images/:filename', async (req, res) => {
+      try {
+        const filename = req.params.filename;
+        const filepath = path.join(process.cwd(), 'uploads/thumbnails', filename);
+
+        if (!fs.existsSync(filepath)) {
+          console.error(`Profile image not found: ${filename}`);
+          return res.status(404).json({ error: 'Image not found' });
+        }
+
+        res.sendFile(filepath);
+      } catch (error) {
+        console.error('Error serving profile image:', error);
+        res.status(500).json({ error: 'Failed to serve image' });
+      }
+    });
+
+    // Serve post media from local filesystem
+    app.get('/api/posts/:id/media', async (req, res) => {
+      try {
+        const postId = parseInt(req.params.id);
+        const walletAddress = req.headers['x-wallet-address'] as string || req.query.wallet as string;
+
+        const post = await storage.getPost(postId);
+        if (!post) {
+          console.error(`Post ${postId} not found`);
+          return res.status(404).json({ error: 'Post not found' });
+        }
+
+        // Check if user has paid for this content or it's free
+        const hasAccess = post.isFree || (walletAddress && await storage.hasUserPaidForPost(walletAddress, postId));
+
+        if (!hasAccess) {
+          console.log(`Access denied for post ${postId}, wallet: ${walletAddress}`);
+          return res.status(403).json({ error: 'Payment required' });
+        }
+
+        try {
+          // Decrypt and serve the file
+          const encryptedBuffer = await readEncryptedFile(post.encryptedMediaPath);
+          const decryptedBuffer = decryptBuffer(encryptedBuffer, post.encryptedKey, post.iv, post.authTag);
+
+          res.set('Content-Type', post.mediaType === 'image' ? 'image/jpeg' : 'video/mp4'); // Adjust mime type as needed
+          res.set('Cache-Control', 'private, max-age=3600');
+          res.set('Access-Control-Allow-Origin', '*');
+          res.set('Content-Length', decryptedBuffer.length.toString());
+          res.send(decryptedBuffer);
+        } catch (fileError) {
+          console.error(`Error reading or decrypting file for post ${postId}:`, fileError);
+          return res.status(500).json({ error: 'File not found or corrupted' });
+        }
+      } catch (error) {
+        console.error('Error serving media:', error);
+        res.status(500).json({ error: 'Failed to serve media' });
+      }
+    });
   }
+
+  // Serve blurred thumbnails (public access)
+  app.get('/api/thumbnails/:filename', async (req, res) => {
+    try {
+      const filename = req.params.filename;
+
+      // Try Object Storage first (production)
+      try {
+        const buffer = await getFromObjectStorage(`uploads/${filename}`);
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=86400');
+        res.send(buffer);
+        return;
+      } catch (storageError) {
+        // Fallback to local filesystem (development)
+        const filepath = path.join(process.cwd(), 'uploads', filename);
+
+        if (!fs.existsSync(filepath)) {
+          console.error(`Thumbnail not found: ${filename}`);
+          return res.status(404).json({ error: 'Thumbnail not found' });
+        }
+
+        res.sendFile(filepath);
+      }
+    } catch (error) {
+      console.error('Error serving thumbnail:', error);
+      res.status(500).json({ error: 'Failed to serve thumbnail' });
+    }
+  });
 
   app.use('/uploads', (req, res, next) => {
     // Block direct access to encrypted files
