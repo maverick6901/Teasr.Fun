@@ -1635,6 +1635,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Calculating revenue for user ${req.params.userId}`);
       const revenue = await storage.getUserTotalRevenue(req.params.userId);
       console.log(`User ${req.params.userId} total revenue: $${revenue}`);
+      
+      // Prevent caching to ensure real-time updates
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      
       res.json({ revenue });
     } catch (error: any) {
       console.error('Get user revenue error:', error);

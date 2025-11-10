@@ -247,13 +247,7 @@ export class DatabaseStorage implements IStorage {
       : undefined;
 
     // Get comment count
-    const commentCount = await withRetry(() =>
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(comments)
-        .where(eq(comments.postId, id))
-        .then(rows => Number(rows[0].count))
-    );
+    const commentCount = await this.getCommentCount(id);
 
     return {
       ...post,
@@ -292,14 +286,7 @@ export class DatabaseStorage implements IStorage {
           : undefined;
 
         // Get comment count
-        const commentCount = await withRetry(() =>
-          db
-            .select({ count: sql<number>`count(*)` })
-            .from(comments)
-            .where(eq(comments.postId, post.id))
-            .then(rows => Number(rows[0].count)
-          )
-        );
+        const commentCount = await this.getCommentCount(post.id);
 
         return {
           ...post,
@@ -1214,7 +1201,8 @@ export class DatabaseStorage implements IStorage {
       .select({ 
         amount: payments.amount,
         postId: payments.postId,
-        paymentType: payments.paymentType
+        paymentType: payments.paymentType,
+        cryptocurrency: payments.cryptocurrency
       })
       .from(payments)
       .innerJoin(posts, eq(posts.id, payments.postId))
@@ -1224,41 +1212,41 @@ export class DatabaseStorage implements IStorage {
       ));
 
     let totalRevenue = 0;
+    // Import price conversion at runtime to avoid circular dependency
+    const { getPriceInUSD } = await import('./services/priceConversion');
 
     // Process each payment
     for (const payment of userPayments) {
-      const paymentAmount = parseFloat(payment.amount);
+      const amount = parseFloat(payment.amount);
+      if (!isFinite(amount)) continue;
 
-      // Get post details to check investor settings
-      const post = await db.query.posts.findFirst({
-        where: eq(posts.id, payment.postId)
-      });
+      const normalizedCrypto = (payment.cryptocurrency || 'USDC').toUpperCase().trim();
 
-      if (!post) continue;
-
-      // Get investor count for this post
-      const investorCount = await db.select({ count: count() })
-        .from(investors)
-        .where(eq(investors.postId, payment.postId))
-        .then(result => result[0]?.count ?? 0);
-
-      const maxInvestors = post.maxInvestors || 10;
-      const investorRevenueShare = parseFloat(post.investorRevenueShare || '0');
-
-      // Calculate revenue after platform fee
-      const afterPlatformFee = paymentAmount - PLATFORM_FEE_USDC;
-
-      // If investor spots are filled and there's a revenue share, deduct it
-      if (investorCount >= maxInvestors && investorRevenueShare > 0) {
-        const investorShare = afterPlatformFee * (investorRevenueShare / 100);
-        const creatorRevenue = afterPlatformFee - investorShare;
-        totalRevenue += creatorRevenue;
-      } else {
-        // No investor distribution, creator gets everything after platform fee
-        totalRevenue += afterPlatformFee;
+      // Get crypto price - for USDC assume 1:1 USD
+      let cryptoPrice = 1.0;
+      if (normalizedCrypto !== 'USDC') {
+        try {
+          cryptoPrice = getPriceInUSD(normalizedCrypto as any);
+          if (!Number.isFinite(cryptoPrice) || cryptoPrice <= 0) {
+            console.warn(`[getUserTotalRevenue] Invalid price for ${normalizedCrypto}, defaulting to 1`);
+            cryptoPrice = 1.0;
+          }
+        } catch (err) {
+          console.warn(`[getUserTotalRevenue] Error getting price for ${normalizedCrypto}, defaulting to 1`);
+          cryptoPrice = 1.0;
+        }
       }
+
+      // Convert to USD and subtract platform fee
+      const amountInUSD = amount * cryptoPrice;
+      const afterFee = Math.max(0, amountInUSD - PLATFORM_FEE_USDC);
+
+      console.log(`[getUserTotalRevenue] Payment: ${amount} ${normalizedCrypto} = $${amountInUSD.toFixed(2)} USD, after fee: $${afterFee.toFixed(2)}`);
+
+      totalRevenue += afterFee;
     }
 
+    console.log(`[getUserTotalRevenue] User ${userId} total revenue: $${totalRevenue.toFixed(2)}`);
     return totalRevenue.toFixed(2);
   }
 

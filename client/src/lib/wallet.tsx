@@ -8,9 +8,22 @@ if (typeof window !== 'undefined') {
   (window as any).global = window;
   (window as any).process = undefined;
   
-  // Detect mobile browser
+  // Detect mobile browser and Phantom in-app browser
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isPhantomBrowser = navigator.userAgent.includes('Phantom');
   (window as any).isMobileBrowser = isMobile;
+  (window as any).isPhantomBrowser = isPhantomBrowser;
+  
+  // Prevent refresh loops in Phantom mobile
+  if (isPhantomBrowser) {
+    let phantomRefreshCount = parseInt(sessionStorage.getItem('phantomRefreshCount') || '0');
+    if (phantomRefreshCount > 3) {
+      console.warn('Phantom: Too many refreshes detected, stabilizing...');
+      sessionStorage.setItem('phantomRefreshCount', '0');
+    } else {
+      sessionStorage.setItem('phantomRefreshCount', (phantomRefreshCount + 1).toString());
+    }
+  }
 }
 
 type WalletType = 'metamask' | 'coinbase' | 'phantom' | null;
@@ -202,6 +215,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setIsConnecting(true);
     try {
       const isMobile = (window as any).isMobileBrowser;
+      const isPhantomBrowser = (window as any).isPhantomBrowser;
+      
+      // For Phantom mobile/in-app browser, prevent refresh loops
+      if (isPhantomBrowser && walletType === 'phantom') {
+        const refreshCount = parseInt(sessionStorage.getItem('phantomRefreshCount') || '0');
+        if (refreshCount > 3) {
+          console.error('Phantom: Preventing refresh loop');
+          setIsConnecting(false);
+          toast({
+            title: 'Connection Issue',
+            description: 'Please close and reopen the page in Phantom browser',
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
       
       // For Phantom mobile, add extra cleanup and waiting
       if (isMobile && walletType === 'phantom') {
@@ -216,8 +245,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        // Small delay to let Phantom mobile initialize
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Delay to let Phantom mobile initialize
+        await new Promise(resolve => setTimeout(resolve, 800));
       } else if (isMobile && provider.removeAllListeners) {
         // Clean up for other mobile wallets
         try {
