@@ -1,10 +1,16 @@
 
-import { Client } from '@replit/object-storage';
-
 async function cleanupObjectStorage() {
   console.log('Starting Object Storage cleanup...');
 
   try {
+    // Only run in production/deployment environment
+    if (process.env.REPL_DEPLOYMENT !== '1') {
+      console.log('⚠️  Object Storage is only available in deployments.');
+      console.log('This script should be run in production, not development.');
+      return;
+    }
+
+    const { Client } = await import('@replit/object-storage');
     const client = new Client();
     
     // List all keys in Object Storage
