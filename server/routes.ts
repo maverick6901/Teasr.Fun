@@ -266,15 +266,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { username, bio } = req.body;
       let profileImagePath = user.profileImagePath;
 
-      // Handle profile image upload - use regular save, not blurred
+      // Handle profile image upload to Object Storage
       if (req.file) {
         const fileExtension = getFileExtension(req.file.mimetype);
         const filename = `profile_${crypto.randomUUID()}.${fileExtension}`;
-        const filepath = path.join(process.cwd(), 'uploads', 'thumbnails', filename);
 
-        // Save the profile image directly (no blur)
-        await fs.writeFile(filepath, req.file.buffer);
-        profileImagePath = `/uploads/thumbnails/${filename}`;
+        if (USE_OBJECT_STORAGE) {
+          const { saveToObjectStorage } = await import('./services/objectStorage');
+          await saveToObjectStorage(`uploads/thumbnails/${filename}`, req.file.buffer);
+        } else {
+          const filepath = path.join(process.cwd(), 'uploads', 'thumbnails', filename);
+          await fs.writeFile(filepath, req.file.buffer);
+        }
+
+        profileImagePath = `/api/profile-images/${filename}`;
       }
 
       const updatedUser = await storage.updateUserProfile(user.id, {
@@ -527,35 +532,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.headers['x-wallet-address'] = walletFromQuery;
       }
       const user = await getCurrentUser(req);
-      const post = await storage.getPost(req.params.id);
+      const postId = parseInt(req.params.id);
+      const post = await storage.getPost(postId);
 
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
-      }
-
-      // If content is free, skip payment check
-      if (post.isFree) {
-        console.log('Content is free, serving decrypted media');
-        try {
-          const encryptedBuffer = await readEncryptedFile(post.encryptedMediaPath);
-          const contentKey = decryptContentKey({
-            encryptedKey: post.encryptedKey,
-            iv: post.iv,
-            authTag: post.authTag,
-          });
-          const fileIv = encryptedBuffer.slice(0, 12);
-          const fileAuthTag = encryptedBuffer.slice(-16);
-          const fileEncryptedData = encryptedBuffer.slice(12, -16);
-          const decryptedBuffer = decryptBuffer(fileEncryptedData, contentKey, fileIv, fileAuthTag);
-          const mimeType = post.mediaType === 'image' ? 'image/jpeg' : 'video/mp4';
-          res.set('Content-Type', mimeType);
-          res.set('Cache-Control', 'private, max-age=3600');
-          res.set('Content-Length', decryptedBuffer.length.toString());
-          return res.send(decryptedBuffer);
-        } catch (decryptError) {
-          console.error('Decryption error for free content:', decryptError);
-          return res.redirect(post.blurredThumbnailPath);
-        }
       }
 
       // Check if user has paid or is the creator
@@ -565,19 +546,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user) {
         isCreator = user.id === post.creatorId;
         if (!isCreator) {
-          hasPaid = await storage.hasUserPaid(user.id, req.params.id, 'content');
+          hasPaid = await storage.hasUserPaid(user.id, postId, 'content');
         }
       }
 
-      console.log(`Media request for post ${post.id}: userId=${user?.id}, walletAddress=${req.headers['x-wallet-address']}, isCreator=${isCreator}, hasPaid=${hasPaid}, isFree=${post.isFree}`);
+      console.log(`Media request for post ${postId}: userId=${user?.id}, isCreator=${isCreator}, hasPaid=${hasPaid}, isFree=${post.isFree}`);
 
-      // If not paid and not creator, serve blurred thumbnail
-      if (!isCreator && !hasPaid) {
+      // If not paid and not creator and not free, serve blurred thumbnail
+      if (!post.isFree && !isCreator && !hasPaid) {
         console.log('User has not paid, serving blurred thumbnail');
-        return res.redirect(post.blurredThumbnailPath);
+        return res.redirect(`/api/thumbnails/${post.blurredThumbnailPath.split('/').pop()}`);
       }
 
-      // User has paid OR is creator - decrypt and serve actual content
+      // User has access - decrypt and serve actual content
       try {
         console.log('User has access, decrypting and serving content');
         const encryptedBuffer = await readEncryptedFile(post.encryptedMediaPath);
@@ -597,7 +578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.send(decryptedBuffer);
       } catch (decryptError) {
         console.error('Decryption error:', decryptError);
-        return res.redirect(post.blurredThumbnailPath);
+        return res.redirect(`/api/thumbnails/${post.blurredThumbnailPath.split('/').pop()}`);
       }
     } catch (error: any) {
       console.error('Get media error:', error);

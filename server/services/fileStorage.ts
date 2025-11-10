@@ -67,6 +67,7 @@ export async function generateBlurredThumbnail(imageBuffer: Buffer): Promise<str
     .toBuffer();
 
   if (USE_OBJECT_STORAGE) {
+    console.log(`Saving thumbnail to Object Storage: uploads/thumbnails/${filename}`);
     await saveToObjectStorage(`uploads/thumbnails/${filename}`, blurredBuffer);
   } else {
     const filepath = path.join(THUMBNAIL_DIR, filename);

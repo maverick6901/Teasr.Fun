@@ -30,17 +30,24 @@ function RevenueDisplay({ userId, walletAddress }: { userId: string; walletAddre
 
   useEffect(() => {
     const fetchRevenue = () => {
-      fetch(`/api/users/${userId}/revenue`)
+      fetch(`/api/users/${userId}/revenue?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      })
         .then(res => res.json())
-        .then(data => setRevenue(data.revenue))
+        .then(data => setRevenue(data.revenue || '0'))
         .catch(err => console.error('Error fetching revenue:', err));
     };
 
     const fetchInvestorEarnings = () => {
       if (!walletAddress) return;
       
-      fetch('/api/investors/dashboard', {
-        headers: { 'x-wallet-address': walletAddress },
+      fetch(`/api/investors/dashboard?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 
+          'x-wallet-address': walletAddress,
+          'Cache-Control': 'no-cache'
+        },
       })
         .then(res => res.json())
         .then(data => {
@@ -54,11 +61,11 @@ function RevenueDisplay({ userId, walletAddress }: { userId: string; walletAddre
     fetchRevenue();
     fetchInvestorEarnings();
     
-    // Update every 10 seconds for real-time updates
+    // Update every 5 seconds for real-time updates
     const interval = setInterval(() => {
       fetchRevenue();
       fetchInvestorEarnings();
-    }, 10000);
+    }, 5000);
     
     return () => clearInterval(interval);
   }, [userId, walletAddress]);
