@@ -100,13 +100,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (type === 'phantom') {
       const isMobile = (window as any).isMobileBrowser;
       
-      // For mobile, try direct ethereum object first (in-app browser)
-      if (isMobile && win.ethereum?.isPhantom) {
-        return win.ethereum;
+      // For mobile in-app browser: Use ethereum if it's Phantom
+      if (isMobile) {
+        // Direct ethereum check (most reliable for mobile)
+        if (win.ethereum?.isPhantom) {
+          console.log('Phantom mobile: using direct ethereum provider');
+          return win.ethereum;
+        }
+        
+        // Check providers array
+        if (win.ethereum?.providers && Array.isArray(win.ethereum.providers)) {
+          const phantom = win.ethereum.providers.find((p: any) => p.isPhantom);
+          if (phantom) {
+            console.log('Phantom mobile: found in providers array');
+            return phantom;
+          }
+        }
+        
+        // No Phantom detected on mobile
+        console.log('Phantom mobile: not detected');
+        return null;
       }
       
-      // Desktop: Check for Phantom's explicit provider
+      // Desktop: Check for Phantom's explicit provider first
       if (win.phantom?.ethereum) {
+        console.log('Phantom desktop: using phantom.ethereum');
         return win.phantom.ethereum;
       }
       
@@ -115,14 +133,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const phantom = win.ethereum.providers.find((p: any) => 
           p.isPhantom && !p.isCoinbaseWallet && !p.isMetaMask
         );
-        if (phantom) return phantom;
+        if (phantom) {
+          console.log('Phantom desktop: found in providers array');
+          return phantom;
+        }
       }
       
       // Final fallback: check if default ethereum is Phantom
       if (win.ethereum?.isPhantom && !win.ethereum?.isCoinbaseWallet && !win.ethereum?.isMetaMask) {
+        console.log('Phantom desktop: using default ethereum');
         return win.ethereum;
       }
       
+      console.log('Phantom: not detected');
       return null;
     }
 
@@ -180,8 +203,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const isMobile = (window as any).isMobileBrowser;
       
-      // Clean up existing listeners for mobile
-      if (isMobile && provider.removeAllListeners) {
+      // For Phantom mobile, add extra cleanup and waiting
+      if (isMobile && walletType === 'phantom') {
+        console.log('Phantom mobile: starting connection...');
+        
+        // Remove any existing listeners
+        if (provider.removeAllListeners) {
+          try {
+            provider.removeAllListeners();
+          } catch (e) {
+            console.warn('Could not remove listeners:', e);
+          }
+        }
+        
+        // Small delay to let Phantom mobile initialize
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else if (isMobile && provider.removeAllListeners) {
+        // Clean up for other mobile wallets
         try {
           provider.removeAllListeners();
         } catch (e) {
@@ -190,10 +228,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       
       // Create provider with explicit network setting
-      const ethersProvider = new ethers.providers.Web3Provider(provider, 'any');
+      let ethersProvider;
+      try {
+        ethersProvider = new ethers.providers.Web3Provider(provider, 'any');
+      } catch (providerError: any) {
+        console.error('Failed to create Web3Provider:', providerError);
+        throw new Error('Failed to initialize wallet connection. Please try again.');
+      }
       
       // Request accounts with appropriate timeout
-      const timeoutMs = isMobile ? 60000 : 30000; // Longer timeout for mobile
+      const timeoutMs = isMobile && walletType === 'phantom' ? 90000 : (isMobile ? 60000 : 30000);
       const accountsPromise = ethersProvider.send('eth_requestAccounts', []);
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Connection timeout - please try again')), timeoutMs)
@@ -240,17 +284,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
     } catch (error: any) {
       console.error('Wallet connection error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        walletType,
+        isMobile: (window as any).isMobileBrowser
+      });
       
       let errorMessage = error.message || 'Please try again';
       
       // Provide specific guidance for common mobile wallet issues
       if (walletType === 'phantom') {
+        const isMobile = (window as any).isMobileBrowser;
+        
         if (error.message?.includes('timeout') || error.message?.includes('Connection')) {
-          errorMessage = 'Connection timeout. Please ensure Phantom app is updated and try again.';
-        } else if (error.message?.includes('User rejected')) {
-          errorMessage = 'Connection rejected. Please approve in Phantom app.';
-        } else if (error.message?.includes('Buffer')) {
-          errorMessage = 'Compatibility issue detected. Please update Phantom app or try desktop.';
+          errorMessage = isMobile 
+            ? 'Connection timeout. Please ensure you\'re using the Phantom in-app browser and try again.'
+            : 'Connection timeout. Please ensure Phantom extension is installed and try again.';
+        } else if (error.message?.includes('User rejected') || error.code === 4001) {
+          errorMessage = 'Connection rejected. Please approve the connection request.';
+        } else if (error.message?.includes('Buffer') || error.message?.includes('polyfill')) {
+          errorMessage = isMobile
+            ? 'Please open teasr.fun directly in the Phantom app browser instead of an external browser.'
+            : 'Browser compatibility issue. Please try a different browser or update Phantom.';
+        } else if (error.message?.includes('initialize')) {
+          errorMessage = isMobile
+            ? 'Failed to initialize. Please ensure you\'re using the latest Phantom app.'
+            : 'Failed to initialize wallet. Please refresh and try again.';
         }
       }
       
