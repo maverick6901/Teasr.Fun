@@ -4,6 +4,50 @@ import { PostWithCreator } from '@shared/schema';
 import { TrendingUp, DollarSign } from 'lucide-react';
 import { Link } from 'wouter';
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+
+function ViralPostCard({ post, index }: { post: PostWithCreator; index: number }) {
+  const [revenue, setRevenue] = useState<string>('0.00');
+
+  useEffect(() => {
+    const fetchRevenue = async () => {
+      try {
+        const response = await fetch(`/api/posts/${post.id}/revenue?t=${Date.now()}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch revenue');
+        }
+        const data = await response.json();
+        setRevenue(data.revenue || '0.00');
+      } catch (err) {
+        console.error('Error fetching revenue for post', post.id, err);
+        setRevenue('0.00');
+      }
+    };
+    
+    fetchRevenue();
+    // Refetch every 10 seconds to get updated revenue
+    const interval = setInterval(fetchRevenue, 10000);
+    return () => clearInterval(interval);
+  }, [post.id]);
+
+  return (
+    <Link key={`${post.id}-${index}`} href={`/`}>
+      <div className="flex items-center gap-2 px-4 py-1 bg-background/50 backdrop-blur-sm rounded-full border border-orange-500/30 hover:border-orange-500/60 transition-colors cursor-pointer whitespace-nowrap min-w-max">
+        <TrendingUp className="w-4 h-4 text-orange-500" />
+        <span className="text-sm font-medium">
+          {post.title}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          by @{post.creator.username}
+        </span>
+        <div className="flex items-center gap-1 text-xs text-green-600 font-semibold">
+          <DollarSign className="w-3 h-3" />
+          {parseFloat(revenue).toFixed(2)}
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 export function ViralPostBanner() {
   const { data: posts } = useQuery<PostWithCreator[]>({
@@ -38,21 +82,7 @@ export function ViralPostBanner() {
         }}
       >
         {duplicatedPosts.map((post, index) => (
-          <Link key={`${post.id}-${index}`} href={`/`}>
-            <div className="flex items-center gap-2 px-4 py-1 bg-background/50 backdrop-blur-sm rounded-full border border-orange-500/30 hover:border-orange-500/60 transition-colors cursor-pointer whitespace-nowrap min-w-max">
-              <TrendingUp className="w-4 h-4 text-orange-500" />
-              <span className="text-sm font-medium">
-                {post.title}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                by @{post.creator.username}
-              </span>
-              <div className="flex items-center gap-1 text-xs text-green-600">
-                <DollarSign className="w-3 h-3" />
-                {post.price}
-              </div>
-            </div>
-          </Link>
+          <ViralPostCard key={`${post.id}-${index}`} post={post} index={index} />
         ))}
       </motion.div>
     </div>
