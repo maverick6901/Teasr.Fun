@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WalletProvider } from "@/lib/wallet";
 import { ThemeProvider } from "@/lib/theme";
+import { WebSocketProvider } from "@/lib/WebSocketContext";
 import Feed from "@/pages/Feed";
 import Admin from "@/pages/Admin";
 import Profile from "@/pages/Profile";
@@ -35,8 +36,10 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <WalletProvider>
-            <Toaster />
-            <Router />
+            <WebSocketProvider>
+              <Toaster />
+              <Router />
+            </WebSocketProvider>
           </WalletProvider>
         </TooltipProvider>
       </ThemeProvider>
